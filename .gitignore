@@ -1,0 +1,8 @@
+# Passwords - never commit. Copy appsettings.example.json to appsettings.json instead.
+appsettings.json
+
+# Visual Studio / build output
+.vs/
+bin/
+obj/
+*.user
