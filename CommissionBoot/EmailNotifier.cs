@@ -24,25 +24,25 @@ namespace CommissionBoot
             _log = log;
         }
 
-        public void SendSuccess(IReadOnlyList<string> savedFiles)
+        public void SendSuccess(IReadOnlyList<string> loaded)
         {
-            Send("Commission Bot - Reports downloaded",
-                $"<p>All reports downloaded successfully.</p>" +
-                FileList(savedFiles) +
+            Send("Commission Bot - Reports loaded",
+                $"<p>All reports downloaded and loaded into the database.</p>" +
+                ItemList(loaded) +
                 $"<p><b>Time:</b> {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>");
         }
 
-        public void SendError(Exception ex, IReadOnlyList<string> savedFiles)
+        public void SendError(Exception ex, IReadOnlyList<string> loaded)
         {
             Send("Commission Bot - ERROR",
                 $"<p>The bot failed.</p>" +
                 $"<p><b>Error:</b> {Html(ex.Message)}<br/><b>Time:</b> {DateTime.Now:yyyy-MM-dd HH:mm:ss}<br/><b>Machine:</b> {Html(Environment.MachineName)}</p>" +
-                (savedFiles.Count > 0 ? "<p>Saved before the error:</p>" + FileList(savedFiles) : "<p>No report was saved.</p>") +
+                (loaded.Count > 0 ? "<p>Loaded before the error:</p>" + ItemList(loaded) : "<p>No report was loaded.</p>") +
                 $"<pre>{Html(ex.ToString())}</pre>");
         }
 
-        private static string FileList(IEnumerable<string> files) =>
-            "<ul>" + string.Concat(files.Select(f => $"<li><b>{Html(Path.GetFileName(f))}</b> - {Html(f)}</li>")) + "</ul>";
+        private static string ItemList(IEnumerable<string> items) =>
+            "<ul>" + string.Concat(items.Select(i => $"<li>{Html(i)}</li>")) + "</ul>";
 
         private void Send(string subject, string htmlBody)
         {

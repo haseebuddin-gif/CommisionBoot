@@ -10,6 +10,8 @@ namespace CommissionBoot
     {
         public RtposSettings Rtpos { get; set; } = new();
         public string ConnectionString { get; set; } = "";
+        // dailyCommission database - raw ADR / SDR loads.
+        public string DailyCommissionConnectionString { get; set; } = "";
         public SmtpSettings Smtp { get; set; } = new();
 
         public sealed class RtposSettings

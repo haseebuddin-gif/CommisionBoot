@@ -135,9 +135,6 @@ namespace CommissionBoot
             var existing = Directory.GetFiles(_downloadDir).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             _log($"Clicking {name}...");
-            // The portal builds the report before responding, which can take minutes. A normal Click()
-            // waits for that and hits WebDriver's command timeout, so fire the click from JS and return
-            // straight away - WaitForDownload below does the waiting.
             var element = Driver.FindElement(button);
             ((IJavaScriptExecutor)Driver).ExecuteScript("var el = arguments[0]; setTimeout(function () { el.click(); }, 0);", element);
 
