@@ -70,37 +70,49 @@ namespace CommissionBoot
         }
 
         /// <summary>
-        ///  Sales Reports > Sales Detailed (Raw), Exclude Bill Payments, Last 7 Days, Raw Excel.
-        ///  Returns the path of the downloaded file (local temp folder).
+        ///  Sales Reports > Sales Detailed (Raw), Exclude Bill Payments, Raw Excel -
+        ///  one Custom Range download per day from <paramref name="from"/> to <paramref name="to"/>.
+        ///  Returns the downloaded files (local temp folder), oldest day first.
         /// </summary>
-        public string DownloadSalesDetailedRaw()
+        public List<string> DownloadSalesDetailedRawByDay(DateTime from, DateTime to)
         {
-            var wait = new WebDriverWait(Driver, TimeSpan.FromSeconds(30));
-
             OpenMenuReport("SalesReportDetail.fwx", "Sales Reports > Sales Detailed (Raw)");
 
-            var excludeBox = wait.Until(d => d.FindElement(By.Name("chkNoPayment")));
-            if (!excludeBox.Selected)
+            var files = new List<string>();
+            for (var day = from.Date; day <= to.Date; day = day.AddDays(1))
             {
-                ((IJavaScriptExecutor)Driver).ExecuteScript("arguments[0].click();", excludeBox);
+                // Checked every day in case the page reloaded after the previous download.
+                var excludeBox = new WebDriverWait(Driver, TimeSpan.FromSeconds(30))
+                    .Until(d => d.FindElement(By.Name("chkNoPayment")));
+                if (!excludeBox.Selected)
+                {
+                    ((IJavaScriptExecutor)Driver).ExecuteScript("arguments[0].click();", excludeBox);
+                }
+
+                SelectCustomDay(day);
+                files.Add(DownloadOnClick(
+                    By.XPath("//span[@class='button-inner' and normalize-space()='Raw Excel']"), $"Raw Excel ({day:MM/dd/yyyy})"));
             }
-            _log("Exclude Bill Payments: checked");
-
-            SelectLast7Days();
-
-            return DownloadOnClick(
-                By.XPath("//span[@class='button-inner' and normalize-space()='Raw Excel']"), "Raw Excel");
+            return files;
         }
 
         /// <summary>
-        ///  Activation Reports > Activation Detail (XLS), Last 7 Days, Export.
-        ///  Returns the path of the downloaded file (local temp folder).
+        ///  Activation Reports > Activation Detail (XLS), Export -
+        ///  one Custom Range download per day from <paramref name="from"/> to <paramref name="to"/>.
+        ///  Returns the downloaded files (local temp folder), oldest day first.
         /// </summary>
-        public string DownloadActivationDetail()
+        public List<string> DownloadActivationDetailByDay(DateTime from, DateTime to)
         {
             OpenMenuReport("ActivationReport_Detail.fwx", "Activation Reports > Activation Detail (XLS)");
-            SelectLast7Days();
-            return DownloadOnClick(By.CssSelector("input[type='submit'][name='btnExcel'][value='Export']"), "Export");
+
+            var files = new List<string>();
+            for (var day = from.Date; day <= to.Date; day = day.AddDays(1))
+            {
+                SelectCustomDay(day);
+                files.Add(DownloadOnClick(
+                    By.CssSelector("input[type='submit'][name='btnExcel'][value='Export']"), $"Export ({day:MM/dd/yyyy})"));
+            }
+            return files;
         }
 
         private void OpenMenuReport(string href, string name)
@@ -114,20 +126,33 @@ namespace CommissionBoot
                          && d.FindElements(By.Id("reportrange")).Count > 0);
         }
 
-        private void SelectLast7Days()
+        // Report Range > Custom Range, start = end = day, Apply.
+        private void SelectCustomDay(DateTime day)
         {
             var driver = Driver;
             var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
+            var value = day.ToString("MM/dd/yyyy", System.Globalization.CultureInfo.InvariantCulture);
 
-            _log("Selecting Report Range > Last 7 Days...");
-            driver.FindElement(By.Id("reportrange")).Click();
-            var last7 = wait.Until(d => d.FindElements(By.CssSelector(".daterangepicker li[data-range-key='Last 7 Days']"))
+            _log($"Selecting Report Range > Custom Range {value}...");
+            wait.Until(d => d.FindElement(By.Id("reportrange"))).Click();
+            var custom = wait.Until(d => d.FindElements(By.CssSelector(".daterangepicker li[data-range-key='Custom Range']"))
                 .FirstOrDefault(e => e.Displayed));
-            last7!.Click();
+            custom!.Click();
 
-            var expectedStart = DateTime.Today.AddDays(-6).ToString("MM/dd/yyyy");
-            wait.Until(d => d.FindElement(By.Id("frmStart")).GetAttribute("value") == expectedStart);
-            _log($"Range: {driver.FindElement(By.Id("frmStart")).GetAttribute("value")} - {driver.FindElement(By.Id("frmEnd")).GetAttribute("value")}");
+            // Typing into the picker's start/end boxes fires its 'change' handler, same as a user would.
+            ((IJavaScriptExecutor)driver).ExecuteScript("""
+                var picker = $('#reportrange').data('daterangepicker');
+                picker.container.find('input[name="daterangepicker_start"]').val(arguments[0]).trigger('change');
+                picker.container.find('input[name="daterangepicker_end"]').val(arguments[0]).trigger('change');
+                """, value);
+
+            var apply = wait.Until(d => d.FindElements(By.CssSelector(".daterangepicker .applyBtn"))
+                .FirstOrDefault(e => e.Displayed && e.Enabled));
+            apply!.Click();
+
+            wait.Until(d => d.FindElement(By.Id("frmStart")).GetAttribute("value") == value
+                         && d.FindElement(By.Id("frmEnd")).GetAttribute("value") == value);
+            _log($"Range: {value} - {value}");
         }
 
         private string DownloadOnClick(By button, string name)

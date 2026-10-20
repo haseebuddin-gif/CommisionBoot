@@ -89,7 +89,14 @@ namespace CommissionBoot
         }
 
         /// <param name="source">"ADR" (Activation Detail) or "SDR" (Sales Detail).</param>
-        public LoadResult Load(string filePath, string source)
+        public LoadResult Load(string filePath, string source) =>
+            Load([filePath], source, Path.GetFileName(filePath));
+
+        /// <summary>
+        ///  Loads several files of the same report (e.g. one per day) as ONE batch, in the given order.
+        /// </summary>
+        /// <param name="batchName">Stored in raw_load_batch.file_name.</param>
+        public LoadResult Load(IReadOnlyList<string> filePaths, string source, string batchName)
         {
             source = source.ToUpperInvariant();
             var dateColumn = source switch
@@ -98,24 +105,17 @@ namespace CommissionBoot
                 "SDR" => "adddate",
                 _ => throw new ArgumentException("source must be ADR or SDR", nameof(source)),
             };
-            var fileName = Path.GetFileName(filePath);
+            if (filePaths.Count == 0)
+            {
+                throw new ArgumentException("No files to load.", nameof(filePaths));
+            }
+            var fileName = batchName.Length > 255 ? batchName[..255] : batchName;
             var targetTable = "raw_" + source.ToLowerInvariant();
 
-            _log($"Loading {source} from {fileName}...");
-            var fileSha256 = Sha256File(filePath);
+            _log($"Loading {source} from {filePaths.Count} file(s) as '{fileName}'...");
+            var fileSha256 = Sha256Files(filePaths);
 
-            var (columns, rows) = ReadCsv(filePath);
-            _log($"Rows read: {rows.Count}");
-
-            // row_hash covers only the source columns; occ numbers repeats of the same row inside this file.
-            var hashes = new string[rows.Count];
-            var occs = new int[rows.Count];
-            var seen = new Dictionary<string, int>();
-            for (var i = 0; i < rows.Count; i++)
-            {
-                hashes[i] = RowHash(rows[i]);
-                occs[i] = seen[hashes[i]] = seen.GetValueOrDefault(hashes[i]) + 1;
-            }
+            var (columns, rows, hashes, occs) = Combine(filePaths);
             var duplicateRows = occs.Count(o => o > 1);
             var insertedRows = rows.Count - duplicateRows;
 
@@ -202,6 +202,62 @@ namespace CommissionBoot
             return result;
         }
 
+        /// <summary>
+        ///  Testing: writes the combined rows of <paramref name="filePaths"/> to one csv - the same columns
+        ///  that would go into raw_adr / raw_sdr (minus batch_id). Nothing touches the database.
+        /// </summary>
+        public void SaveCombinedCsv(IReadOnlyList<string> filePaths, string outputPath)
+        {
+            var (columns, rows, hashes, occs) = Combine(filePaths);
+
+            using var writer = new StreamWriter(outputPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            using var csv = new CsvWriter(writer, CultureInfo.InvariantCulture);
+            foreach (var c in columns.Concat(["row_num", "row_hash", "occ"])) csv.WriteField(c);
+            csv.NextRecord();
+            for (var i = 0; i < rows.Count; i++)
+            {
+                foreach (var v in rows[i]) csv.WriteField(v);
+                csv.WriteField(i + 1);
+                csv.WriteField(hashes[i]);
+                csv.WriteField(occs[i]);
+                csv.NextRecord();
+            }
+            _log($"Saved {rows.Count} rows ({occs.Count(o => o > 1)} duplicate) to {outputPath}");
+        }
+
+        // Reads the files in order into one row list; row_hash covers only the source columns,
+        // occ numbers repeats of the same row across all the files.
+        private (string[] Columns, List<string[]> Rows, string[] Hashes, int[] Occs) Combine(IReadOnlyList<string> filePaths)
+        {
+            string[] columns = [];
+            var rows = new List<string[]>();
+            foreach (var filePath in filePaths)
+            {
+                var (fileColumns, fileRows) = ReadCsv(filePath);
+                if (filePath == filePaths[0])
+                {
+                    columns = fileColumns;
+                }
+                else if (!columns.SequenceEqual(fileColumns))
+                {
+                    throw new InvalidOperationException($"{Path.GetFileName(filePath)} has different columns than the first file.");
+                }
+                rows.AddRange(fileRows);
+                _log($"  {Path.GetFileName(filePath)}: {fileRows.Count} rows");
+            }
+            _log($"Rows read: {rows.Count}");
+
+            var hashes = new string[rows.Count];
+            var occs = new int[rows.Count];
+            var seen = new Dictionary<string, int>();
+            for (var i = 0; i < rows.Count; i++)
+            {
+                hashes[i] = RowHash(rows[i]);
+                occs[i] = seen[hashes[i]] = seen.GetValueOrDefault(hashes[i]) + 1;
+            }
+            return (columns, rows, hashes, occs);
+        }
+
         private static (string[] Columns, List<string[]> Rows) ReadCsv(string filePath)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -247,10 +303,21 @@ namespace CommissionBoot
             return Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(joined))).ToLowerInvariant();
         }
 
-        private static string Sha256File(string filePath)
+        // SHA256 of all files' bytes back to back - for a single file this is the plain file SHA256.
+        private static string Sha256Files(IEnumerable<string> filePaths)
         {
-            using var stream = File.OpenRead(filePath);
-            return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var buffer = new byte[1024 * 1024];
+            foreach (var filePath in filePaths)
+            {
+                using var stream = File.OpenRead(filePath);
+                int read;
+                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    sha.AppendData(buffer, 0, read);
+                }
+            }
+            return Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant();
         }
 
         private static void BulkInsert(MySqlConnection conn, MySqlTransaction tx, string table, DataTable data)
