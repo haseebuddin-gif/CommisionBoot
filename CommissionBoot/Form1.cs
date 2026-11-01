@@ -43,6 +43,9 @@ namespace CommissionBoot
                     loaded.Add(LoadToDb(sdrFiles, "SDR", from, to));
                     loaded.Add(LoadToDb(adrFiles, "ADR", from, to));
                 });
+                // Raw data is in - build today's daily_commission_summary with the current filters.
+                // Empty CommissionApiUrl = skipped for now.
+                if (!TestingSaveToFile && !string.IsNullOrWhiteSpace(_settings.CommissionApiUrl)) loaded.Add(await RefreshCommissionSummaryAsync());
                 Log("Done.");
                 // One email for the whole run, only after both reports are loaded.
                 await Task.Run(() => _email.SendSuccess(loaded));
@@ -76,6 +79,22 @@ namespace CommissionBoot
             var result = _loader.Load(downloaded, source, batchName);
             foreach (var file in downloaded) File.Delete(file);
             return result.ToString();
+        }
+
+        // Calls the TechnoComm API: v_final_summary -> daily_commission_summary for today.
+        private async Task<string> RefreshCommissionSummaryAsync()
+        {
+            Log("Building daily commission summary...");
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+            var url = $"{_settings.CommissionApiUrl.TrimEnd('/')}/api/DailyCommission/RefreshDailyCommissionSummary";
+            var response = await client.PostAsync(url, null);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"Commission summary failed ({(int)response.StatusCode}): {body}");
+            }
+            Log("Daily commission summary saved.");
+            return $"Commission summary: saved for {DateTime.Today:yyyy-MM-dd}";
         }
 
         private void Log(string message)

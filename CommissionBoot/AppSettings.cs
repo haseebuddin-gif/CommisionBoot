@@ -12,6 +12,8 @@ namespace CommissionBoot
         public string ConnectionString { get; set; } = "";
         // dailyCommission database - raw ADR / SDR loads.
         public string DailyCommissionConnectionString { get; set; } = "";
+        // TechnoComm API - builds daily_commission_summary after the raw load.
+        public string CommissionApiUrl { get; set; } = "";
         public SmtpSettings Smtp { get; set; } = new();
 
         public sealed class RtposSettings
