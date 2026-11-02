@@ -6,7 +6,7 @@ using MySqlConnector;
 namespace CommissionBoot
 {
     /// <summary>
-    ///  Emails the active recipients in commissionReport.email_recipients.
+    ///  Emails the active recipients in dailyCommission.email_setting (no active row = no email).
     ///  Never throws - a failed email is only logged so the bot keeps running.
     /// </summary>
     public sealed class EmailNotifier
@@ -51,7 +51,7 @@ namespace CommissionBoot
                 var recipients = GetActiveRecipients();
                 if (recipients.Count == 0)
                 {
-                    _log("Email skipped - no active recipients.");
+                    _log("Email skipped - no active recipient in email_setting.");
                     return;
                 }
 
@@ -88,10 +88,10 @@ namespace CommissionBoot
         private List<(string Name, string Email, int Type)> GetActiveRecipients()
         {
             var result = new List<(string, string, int)>();
-            using var conn = new MySqlConnection(_settings.ConnectionString);
+            using var conn = new MySqlConnection(_settings.DailyCommissionConnectionString);
             conn.Open();
             using var cmd = new MySqlCommand(
-                "SELECT name, email, recipient_type_id FROM email_recipients WHERE is_active = 1", conn);
+                "SELECT name, email, recipient_type_id FROM email_setting WHERE is_active = 1", conn);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
