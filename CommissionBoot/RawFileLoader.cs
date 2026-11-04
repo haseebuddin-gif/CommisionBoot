@@ -192,6 +192,10 @@ namespace CommissionBoot
             }
             BulkInsert(conn, tx, "raw_batch_row", batchRows);
 
+            // The new batch (day 1 of the month to today) replaces the whole table, so older months go too.
+            _log($"Removing older rows from {targetTable}...");
+            Execute(conn, tx, $"DELETE FROM `{targetTable}` WHERE batch_id <> @id", ("@id", batchId));
+
             Execute(conn, tx, "UPDATE raw_load_batch SET rows_inserted = @ins, rows_skipped = @skip WHERE batch_id = @id",
                 ("@ins", insertedRows), ("@skip", duplicateRows), ("@id", batchId));
 
@@ -358,7 +362,7 @@ namespace CommissionBoot
 
         private static void Execute(MySqlConnection conn, MySqlTransaction? tx, string sql, params (string Name, object? Value)[] parameters)
         {
-            using var cmd = new MySqlCommand(sql, conn, tx);
+            using var cmd = new MySqlCommand(sql, conn, tx) { CommandTimeout = 600 };
             foreach (var (name, value) in parameters) cmd.Parameters.AddWithValue(name, value ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
